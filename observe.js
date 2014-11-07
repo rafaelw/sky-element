@@ -396,10 +396,6 @@ function dirtyCheck(observer) {
   return cycles > 0;
 }
 
-function runEOM(fn) {
-  return Promise.resolve().then(fn);
-}
-
 var observedObjectCache = [];
 
 function newObservedObject() {
@@ -579,7 +575,6 @@ function getObservedSet(observer, obj) {
 var UNOPENED = 0;
 var OPENED = 1;
 var CLOSED = 2;
-var RESETTING = 3;
 
 var nextObserverId = 1;
 
@@ -765,33 +760,16 @@ function CompoundObserver(reportChangesOnOpen) {
   this.observed_ = [];
 }
 
-var observerSentinel = {};
-
 CompoundObserver.prototype = createObject({
   __proto__: Observer.prototype,
 
   connect_: function() {
     var object;
-    var needsDirectObserver = false;
-    for (var i = 0; i < this.observed_.length; i += 2) {
-      object = this.observed_[i]
-      if (object !== observerSentinel) {
-        needsDirectObserver = true;
-        break;
-      }
-    }
-
-    if (needsDirectObserver)
-      this.directObserver_ = getObservedSet(this, object);
-
+    this.directObserver_ = getObservedSet(this, object);
     this.check_(undefined, !this.reportChangesOnOpen_);
   },
 
   disconnect_: function() {
-    for (var i = 0; i < this.observed_.length; i += 2) {
-      if (this.observed_[i] === observerSentinel)
-        this.observed_[i + 1].close();
-    }
     this.observed_.length = 0;
     this.value_.length = 0;
 
@@ -802,7 +780,7 @@ CompoundObserver.prototype = createObject({
   },
 
   addPath: function(object, path) {
-    if (this.state_ != UNOPENED && this.state_ != RESETTING)
+    if (this.state_ != UNOPENED)
       throw Error('Cannot add paths once started.');
 
     var path = getPath(path);
@@ -813,40 +791,11 @@ CompoundObserver.prototype = createObject({
     this.value_[index] = path.getValueFrom(object);
   },
 
-  addObserver: function(observer) {
-    if (this.state_ != UNOPENED && this.state_ != RESETTING)
-      throw Error('Cannot add observers once started.');
-
-    this.observed_.push(observerSentinel, observer);
-    if (!this.reportChangesOnOpen_)
-      return;
-    var index = this.observed_.length / 2 - 1;
-    this.value_[index] = observer.open(this.deliver, this);
-  },
-
-  startReset: function() {
-    if (this.state_ != OPENED)
-      throw Error('Can only reset while open');
-
-    this.state_ = RESETTING;
-    this.disconnect_();
-  },
-
-  finishReset: function() {
-    if (this.state_ != RESETTING)
-      throw Error('Can only finishReset after startReset');
-    this.state_ = OPENED;
-    this.connect_();
-
-    return this.value_;
-  },
-
   iterateObjects_: function(observe) {
     var object;
     for (var i = 0; i < this.observed_.length; i += 2) {
       object = this.observed_[i]
-      if (object !== observerSentinel)
-        this.observed_[i + 1].iterateObjects(object, observe)
+      this.observed_[i + 1].iterateObjects(object, observe)
     }
   },
 
@@ -855,15 +804,7 @@ CompoundObserver.prototype = createObject({
     for (var i = 0; i < this.observed_.length; i += 2) {
       var object = this.observed_[i];
       var path = this.observed_[i+1];
-      var value;
-      if (object === observerSentinel) {
-        var observable = path;
-        value = this.state_ === UNOPENED ?
-            observable.open(this.deliver, this) :
-            observable.discardChanges();
-      } else {
-        value = path.getValueFrom(object);
-      }
+      var value = path.getValueFrom(object);
 
       if (skipChanges) {
         this.value_[i / 2] = value;
@@ -1359,8 +1300,6 @@ ArrayObserver.calculateSplices = function(current, previous) {
 /*
 module.exports = {
   Observer: Observer,
-  runEOM_: runEOM,
-  observerSentinel_: observerSentinel,
   PathObserver: PathObserver,
   ArrayObserver: ArrayObserver,
   ArraySplice: ArraySplice,

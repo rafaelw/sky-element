@@ -202,7 +202,7 @@ function ensureSetModelScheduled(template) {
 
   if (!template.setModelFnScheduled_) {
     template.setModelFnScheduled_ = true;
-    Observer.runEOM_(template.setModelFn_);
+    Promise.resolve().then(template.setModelFn_);
   }
 }
 
@@ -470,26 +470,20 @@ function parseMustaches(s, name, node) {
 
 function processOneTimeBinding(name, tokens, node, model) {
   if (tokens.hasOnePath) {
-    var delegateFn = tokens[3];
-    var value = delegateFn ? delegateFn(model, node, true) :
-                             tokens[2].getValueFrom(model);
+    var value = tokens[2].getValueFrom(model);
     return tokens.isSimplePath ? value : tokens.combinator(value);
   }
 
   var values = [];
   for (var i = 1; i < tokens.length; i += 4) {
-    var delegateFn = tokens[i + 2];
-    values[(i - 1) / 4] = delegateFn ? delegateFn(model, node) :
-        tokens[i + 1].getValueFrom(model);
+    values[(i - 1) / 4] = tokens[i + 1].getValueFrom(model);
   }
 
   return tokens.combinator(values);
 }
 
 function processSinglePathBinding(name, tokens, node, model) {
-  var delegateFn = tokens[3];
-  var observer = delegateFn ? delegateFn(model, node, false) :
-      new PathObserver(model, tokens[2]);
+  var observer = new PathObserver(model, tokens[2]);
 
   return tokens.isSimplePath ? observer :
       new ObserverTransform(observer, tokens.combinator);
@@ -506,17 +500,6 @@ function processBinding(name, tokens, node, model) {
 
   for (var i = 1; i < tokens.length; i += 4) {
     var oneTime = tokens[i];
-    var delegateFn = tokens[i + 2];
-
-    if (delegateFn) {
-      var value = delegateFn(model, node, oneTime);
-      if (oneTime)
-        observer.addPath(value)
-      else
-        observer.addObserver(value);
-      continue;
-    }
-
     var path = tokens[i + 1];
     if (oneTime)
       observer.addPath(path.getValueFrom(model))
