@@ -174,15 +174,6 @@ function getTemplateStagingDocument(template) {
   return template.stagingDocument_;
 }
 
-var templateObserver;
-if (typeof MutationObserver == 'function') {
-  templateObserver = new MutationObserver(function(records) {
-    for (var i = 0; i < records.length; i++) {
-      records[i].target.refChanged_();
-    }
-  });
-}
-
 var contentDescriptor = {
   get: function() {
     return this.content_;
@@ -207,30 +198,6 @@ function ensureSetModelScheduled(template) {
 }
 
 mixin(HTMLTemplateElement.prototype, {
-  bind: function(name, value, oneTime) {
-    if (name != 'ref')
-      return Element.prototype.bind.call(this, name, value, oneTime);
-
-    var self = this;
-    var ref = oneTime ? value : value.open(function(ref) {
-      self.setAttribute('ref', ref);
-      self.refChanged_();
-    });
-
-    this.setAttribute('ref', ref);
-    this.refChanged_();
-    if (oneTime)
-      return;
-
-    if (!this.bindings_) {
-      this.bindings_ = { ref: value };
-    } else {
-      this.bindings_.ref = value;
-    }
-
-    return value;
-  },
-
   processBindingDirectives_: function(directives) {
     if (this.iterator_)
       this.iterator_.closeDeps();
@@ -249,12 +216,6 @@ mixin(HTMLTemplateElement.prototype, {
     }
 
     this.iterator_.updateDependencies(directives, this.model_);
-
-    if (templateObserver) {
-      templateObserver.observe(this, { attributes: true,
-                                       attributeFilter: ['ref'] });
-    }
-
     return this.iterator_;
   },
 
@@ -264,9 +225,7 @@ mixin(HTMLTemplateElement.prototype, {
     else if (!delegate_)
       delegate_ = this.delegate_;
 
-    if (!this.refContent_)
-      this.refContent_ = this.ref_.content;
-    var content = this.refContent_;
+    var content = this.ref_.content;
     if (content.firstChild === null)
       return emptyInstance;
 
@@ -323,21 +282,9 @@ mixin(HTMLTemplateElement.prototype, {
     return this.delegate_ && this.delegate_.raw;
   },
 
-  refChanged_: function() {
-    if (!this.iterator_ || this.refContent_ === this.ref_.content)
-      return;
-
-    this.refContent_ = undefined;
-    this.iterator_.valueChanged();
-    this.iterator_.updateIteratedValue(this.iterator_.getUpdatedValue());
-  },
-
   clear: function() {
     this.model_ = undefined;
     this.delegate_ = undefined;
-    if (this.bindings_ && this.bindings_.ref)
-      this.bindings_.ref.close()
-    this.refContent_ = undefined;
     if (!this.iterator_)
       return;
     this.iterator_.valueChanged();
