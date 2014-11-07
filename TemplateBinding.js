@@ -195,8 +195,7 @@ function ensureSetModelScheduled(template) {
   if (!template.setModelFn_) {
     template.setModelFn_ = function() {
       template.setModelFnScheduled_ = false;
-      var map = getBindings(template,
-          template.delegate_ && template.delegate_.prepareBinding);
+      var map = getBindings(template);
       processBindings(template, map, template.model_);
     };
   }
@@ -271,7 +270,7 @@ mixin(HTMLTemplateElement.prototype, {
     if (content.firstChild === null)
       return emptyInstance;
 
-    var map = getInstanceBindingMap(content, delegate_);
+    var map = getInstanceBindingMap(content);
     var stagingDocument = getTemplateStagingDocument(this);
     var instance = stagingDocument.createDocumentFragment();
     instance.templateCreator_ = this;
@@ -370,9 +369,7 @@ mixin(HTMLTemplateElement.prototype, {
     }
 
     return {
-      bindingMaps: {},
       raw: bindingDelegate,
-      prepareBinding: delegateFn('prepareBinding'),
       prepareInstanceModel: delegateFn('prepareInstanceModel'),
       prepareInstancePositionChanged:
           delegateFn('prepareInstancePositionChanged')
@@ -405,7 +402,7 @@ mixin(HTMLTemplateElement.prototype, {
 //   a) undefined if there are no mustaches.
 //   b) [TEXT, (ONE_TIME?, PATH, DELEGATE_FN, TEXT)+] if there is at least
 //      one mustache.
-function parseMustaches(s, name, node, prepareBindingFn) {
+function parseMustaches(s, name, node) {
   if (!s || !s.length)
     return;
 
@@ -441,15 +438,8 @@ function parseMustaches(s, name, node, prepareBindingFn) {
     var pathString = s.slice(startIndex + 2, endIndex).trim();
     tokens.push(oneTime); // ONE_TIME?
     onlyOneTime = onlyOneTime && oneTime;
-    var delegateFn = prepareBindingFn &&
-                     prepareBindingFn(pathString, name, node);
-    // Don't try to parse the expression if there's a prepareBinding function
-    if (delegateFn == null) {
-      tokens.push(Path.get(pathString)); // PATH
-    } else {
-      tokens.push(null);
-    }
-    tokens.push(delegateFn); // DELEGATE_FN
+    tokens.push(Path.get(pathString)); // PATH
+    tokens.push(null); // delegate DELEGATE_FN
     lastIndex = endIndex + 2;
   }
 
@@ -556,12 +546,12 @@ function processBindings(node, bindings, model, instanceBindings) {
     instanceBindings.push(iter);
 }
 
-function parseWithDefault(el, name, prepareBindingFn) {
+function parseWithDefault(el, name) {
   var v = el.getAttribute(name);
-  return parseMustaches(v == '' ? '{{}}' : v, name, el, prepareBindingFn);
+  return parseMustaches(v == '' ? '{{}}' : v, name, el);
 }
 
-function parseAttributeBindings(element, prepareBindingFn) {
+function parseAttributeBindings(element) {
   var bindings = [];
   var ifFound = false;
   var bindFound = false;
@@ -577,8 +567,7 @@ function parseAttributeBindings(element, prepareBindingFn) {
       continue;
     }
 
-    var tokens = parseMustaches(value, name, element,
-                                prepareBindingFn);
+    var tokens = parseMustaches(value, name, element);
     if (!tokens)
       continue;
 
@@ -587,25 +576,24 @@ function parseAttributeBindings(element, prepareBindingFn) {
 
   if (isTemplate(element)) {
     bindings.isTemplate = true;
-    bindings.if = parseWithDefault(element, IF, prepareBindingFn);
-    bindings.bind = parseWithDefault(element, BIND, prepareBindingFn);
-    bindings.repeat = parseWithDefault(element, REPEAT, prepareBindingFn);
+    bindings.if = parseWithDefault(element, IF);
+    bindings.bind = parseWithDefault(element, BIND);
+    bindings.repeat = parseWithDefault(element, REPEAT);
 
     if (bindings.if && !bindings.bind && !bindings.repeat)
-      bindings.bind = parseMustaches('{{}}', BIND, element, prepareBindingFn);
+      bindings.bind = parseMustaches('{{}}', BIND, element);
   }
 
   return bindings;
 }
 
-function getBindings(node, prepareBindingFn) {
+function getBindings(node) {
   if (node instanceof Element) {
-    return parseAttributeBindings(node, prepareBindingFn);
+    return parseAttributeBindings(node);
   }
 
   if (node instanceof Text) {
-    var tokens = parseMustaches(node.data, 'textContent', node,
-                                prepareBindingFn);
+    var tokens = parseMustaches(node.data, 'textContent', node);
     if (tokens)
       return ['textContent', tokens];
   }
@@ -639,50 +627,25 @@ function cloneAndBindInstance(node, parent, stagingDocument, bindings, model,
   return clone;
 }
 
-function createInstanceBindingMap(node, prepareBindingFn) {
-  var map = getBindings(node, prepareBindingFn);
+function createInstanceBindingMap(node) {
+  var map = getBindings(node);
   map.children = {};
   var index = 0;
   for (var child = node.firstChild; child; child = child.nextSibling) {
-    map.children[index++] = createInstanceBindingMap(child, prepareBindingFn);
+    map.children[index++] = createInstanceBindingMap(child);
   }
 
   return map;
 }
 
-var contentUidCounter = 1;
-
-// TODO(rafaelw): Setup a MutationObserver on content which clears the id
-// so that bindingMaps regenerate when the template.content changes.
-function getContentUid(content) {
-  var id = content.id_;
-  if (!id)
-    id = content.id_ = contentUidCounter++;
-  return id;
-}
-
-// Each delegate is associated with a set of bindingMaps, one for each
-// content which may be used by a template. The intent is that each binding
-// delegate gets the opportunity to prepare the instance (via the prepare*
-// delegate calls) once across all uses.
 // TODO(rafaelw): Separate out the parse map from the binding map. In the
 // current implementation, if two delegates need a binding map for the same
 // content, the second will have to reparse.
-function getInstanceBindingMap(content, delegate_) {
-  var contentId = getContentUid(content);
-  if (delegate_) {
-    var map = delegate_.bindingMaps[contentId];
-    if (!map) {
-      map = delegate_.bindingMaps[contentId] =
-          createInstanceBindingMap(content, delegate_.prepareBinding) || [];
-    }
-    return map;
-  }
-
+function getInstanceBindingMap(content) {
   var map = content.bindingMap_;
   if (!map) {
     map = content.bindingMap_ =
-        createInstanceBindingMap(content, undefined) || [];
+        createInstanceBindingMap(content) || [];
   }
   return map;
 }
