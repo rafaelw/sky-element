@@ -1,0 +1,17 @@
+<html>
+
+<!-- <import src="sky-element.sky" /> -->
+
+<script src="observe.js"></script>
+<script src="TemplateBinding.js"></script>
+<script src="sky-element.js"></script>
+
+<template>Hello, {{ place }}</template>
+<script>
+SkyElement({
+  name: 'hello-world',
+  place: 'World'
+});
+</script>
+<hello-world></hello-world>
+</html>
